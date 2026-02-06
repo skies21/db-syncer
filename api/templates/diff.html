@@ -1,0 +1,138 @@
+<div class="card shadow-sm">
+    <div class="card-body">
+
+        <h2 class="h5 mb-4">Различия схемы базы данных</h2>
+
+        {% if diff.tables_to_add %}
+        <div class="mb-4">
+            <h6>
+                Таблицы для добавления
+                <span class="badge bg-success ms-2">новые</span>
+            </h6>
+            <ul class="list-group list-group-flush">
+                {% for table in diff.tables_to_add %}
+                <li class="list-group-item">
+                    <code>{{ table }}</code>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        {% if diff.tables_to_drop %}
+        <div class="mb-4">
+            <h6>
+                Таблицы для удаления
+                <span class="badge bg-danger ms-2">удаление</span>
+            </h6>
+
+            <form hx-post="/confirm_batch" hx-target="#diff-container">
+                <input type="hidden" name="source_url" value="{{ source_url }}">
+                <input type="hidden" name="target_url" value="{{ target_url }}">
+                <input type="hidden" name="pk_strategy" value="{{ pk_strategy }}">
+
+                {% for table in diff.tables_to_drop %}
+                <div class="form-check">
+                    <input
+                        class="form-check-input"
+                        type="checkbox"
+                        name="tables"
+                        value="{{ table }}"
+                        id="table-{{ table }}"
+                    >
+                    <label class="form-check-label" for="table-{{ table }}">
+                        <code>{{ table }}</code>
+                    </label>
+                </div>
+                {% endfor %}
+
+                <button class="btn btn-outline-danger btn-sm mt-3">
+                    Подтвердить удаление таблиц
+                </button>
+            </form>
+        </div>
+        {% endif %}
+
+        {% if diff.columns_to_add %}
+        <div class="mb-4">
+            <h6>
+                Колонки для добавления
+                <span class="badge bg-success ms-2">новые</span>
+            </h6>
+
+            {% for table, cols in diff.columns_to_add.items() %}
+            <div class="mb-2">
+                <strong><code>{{ table }}</code></strong>
+                <ul class="mb-1">
+                    {% for col in cols.keys() %}
+                    <li><code>{{ col }}</code></li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if diff.columns_to_drop %}
+        <div class="mb-4">
+            <h6>
+                Колонки для удаления
+                <span class="badge bg-danger ms-2">удаление</span>
+            </h6>
+
+            <form hx-post="/confirm_batch" hx-target="#diff-container">
+                <input type="hidden" name="source_url" value="{{ source_url }}">
+                <input type="hidden" name="target_url" value="{{ target_url }}">
+                <input type="hidden" name="pk_strategy" value="{{ pk_strategy }}">
+
+                {% for table, cols in diff.columns_to_drop.items() %}
+                <div class="mb-2">
+                    <strong><code>{{ table }}</code></strong>
+
+                    {% for col in cols %}
+                    <div class="form-check ms-3">
+                        <input
+                            class="form-check-input"
+                            type="checkbox"
+                            name="columns"
+                            value="{{ table }}.{{ col }}"
+                            id="{{ table }}-{{ col }}"
+                        >
+                        <label class="form-check-label" for="{{ table }}-{{ col }}">
+                            <code>{{ col }}</code>
+                        </label>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+
+                <button class="btn btn-outline-danger btn-sm mt-3">
+                    Подтвердить удаление колонок
+                </button>
+            </form>
+        </div>
+        {% endif %}
+
+        <div class="d-flex gap-2 mt-4">
+            <form hx-get="/conflicts" hx-target="#diff-container" hx-include="this">
+                <input type="hidden" name="source_url" value="{{ source_url }}">
+                <input type="hidden" name="target_url" value="{{ target_url }}">
+                <input type="hidden" name="pk_strategy" value="{{ pk_strategy }}">
+                <button type="submit" class="btn btn-outline-secondary">
+                    Просмотреть конфликты данных
+                </button>
+            </form>
+
+            <form hx-post="/sync" hx-target="#diff-container">
+                <input type="hidden" name="source_url" value="{{ source_url }}">
+                <input type="hidden" name="target_url" value="{{ target_url }}">
+                <input type="hidden" name="pk_strategy" value="{{ pk_strategy }}">
+
+                <button class="btn btn-primary">
+                    Запустить синхронизацию
+                </button>
+            </form>
+        </div>
+
+    </div>
+</div>

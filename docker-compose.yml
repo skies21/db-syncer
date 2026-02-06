@@ -1,0 +1,51 @@
+services:
+  # Тестовая source DB
+  postgres_source:
+    image: postgres:15
+    container_name: pg_source
+    environment:
+      POSTGRES_DB: source_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./db-init/source:/docker-entrypoint-initdb.d
+    profiles:
+      - test_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      retries: 10
+
+  # Тестовая target DB
+  postgres_target:
+    image: postgres:15
+    container_name: pg_target
+    environment:
+      POSTGRES_DB: target_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - ./db-init/target:/docker-entrypoint-initdb.d
+    profiles:
+      - test_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      retries: 10
+
+  # Основной сервис
+  db-syncer:
+    build: .
+    container_name: db-syncer
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+      - ./sync.log:/app/sync.log
+    environment:
+      - PYTHONUNBUFFERED=1
+      - USE_TEST_DB=0

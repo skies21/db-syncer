@@ -1,0 +1,24 @@
+<div class="alert alert-success">
+  <h5 class="alert-heading">Синхронизация завершена</h5>
+
+  <ul class="mb-2">
+    <li>Схема БД синхронизирована</li>
+    <li>Данные синхронизированы</li>
+  </ul>
+
+  <div class="d-flex gap-2">
+      <form
+        hx-post="/diff"
+        hx-target="#diff-container"
+        class="d-inline"
+      >
+        <input type="hidden" name="source_url" value="{{ source_url }}">
+        <input type="hidden" name="target_url" value="{{ target_url }}">
+        <input type="hidden" name="pk_strategy" value="{{ pk_strategy }}">
+
+        <button class="btn btn-sm btn-outline-primary">
+          Посмотреть diff
+        </button>
+      </form>
+  </div>
+</div>
