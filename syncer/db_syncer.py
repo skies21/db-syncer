@@ -3,6 +3,7 @@ from typing import Dict, List
 
 from sqlalchemy import create_engine, inspect, MetaData, Table, text, select, insert, update
 from sqlalchemy.engine import Engine
+from sqlalchemy.sql.schema import Column
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class DBSyncer:
                 name: col_type
                 for name, col_type in source_cols.items()
                 if name in target_cols
-                   and str(col_type) != str(target_cols[name])
+                and str(col_type) != str(target_cols[name])
             }
 
             drop_cols = [
@@ -83,8 +84,16 @@ class DBSyncer:
 
             new_table = Table(
                 source_table.name,
-                MetaData(),
-                *(c.copy() for c in source_table.columns),
+                self.target_meta,
+                *[
+                    Column(
+                        c.name,
+                        c.type,
+                        primary_key=c.primary_key,
+                        nullable=c.nullable,
+                    )
+                    for c in source_table.columns
+                ],
             )
 
             new_table.create(self.target_engine)
@@ -98,8 +107,8 @@ class DBSyncer:
                 for col_name, col_type in cols.items():
                     conn.execute(
                         text(
-                            f"ALTER TABLE {table} "
-                            f"ADD COLUMN {col_name} {col_type}"
+                            f'ALTER TABLE "{table}" '
+                            f'ADD COLUMN "{col_name}" {col_type}'
                         )
                     )
 
@@ -108,8 +117,8 @@ class DBSyncer:
                 for col_name, col_type in cols.items():
                     conn.execute(
                         text(
-                            f"ALTER TABLE {table} "
-                            f"ALTER COLUMN {col_name} TYPE {col_type}"
+                            f'ALTER TABLE "{table}" '
+                            f'ALTER COLUMN "{col_name}" TYPE {col_type}'
                         )
                     )
 
@@ -125,7 +134,8 @@ class DBSyncer:
 
                     conn.execute(
                         text(
-                            f"ALTER TABLE {table} DROP COLUMN {col_name}"
+                            f'ALTER TABLE "{table}" '
+                            f'DROP COLUMN "{col_name}"'
                         )
                     )
 
@@ -150,54 +160,59 @@ class DBSyncer:
 
                 for row in src_conn.execute(select(source_table)):
                     row_data = dict(row._mapping)
-                    # Оставляем только колонки, которые есть в target
-                    row_data_filtered = {k: v for k, v in row_data.items() if k in target_columns}
+                    pk_value = row_data.get(pk_column.name)
 
-                    pk_value = row_data[pk_column.name]
+                    if pk_value is None:
+                        continue
+
+                    # Оставляем только колонки, которые есть в target
+                    row_data_filtered = {
+                        k: v for k, v in row_data.items()
+                        if k in target_columns
+                    }
 
                     pk_condition = (
-                        target_table.c[pk_column.name].is_(None)
-                        if pk_value is None
-                        else target_table.c[pk_column.name] == pk_value
+                        target_table.c[pk_column.name] == pk_value
                     )
 
                     existing = tgt_conn.execute(
                         select(target_table).where(pk_condition)
-                    ).fetchone()
+                    ).mappings().fetchone()
 
                     if existing:
-                        existing_data = dict(existing._mapping)
                         if pk_strategy == "skip":
                             continue
 
                         elif pk_strategy == "overwrite":
                             # обновляем только существующие колонки
-                            update_data = {k: v for k, v in row_data_filtered.items() if k in existing_data}
+                            update_data = {
+                                k: v for k, v in row_data_filtered.items()
+                                if k != pk_column.name
+                            }
                             if update_data:
-                                stmt = update(target_table).where(pk_condition).values(**update_data)
-                                tgt_conn.execute(stmt)
-
+                                tgt_conn.execute(
+                                    update(target_table)
+                                    .where(pk_condition)
+                                    .values(**update_data)
+                                )
 
                         elif pk_strategy == "merge":
-                            existing_row = tgt_conn.execute(
-                                target_table.select().where(pk_condition)
-                            ).mappings().fetchone()
-
-                            if existing_row:
-                                update_data = {}
-                                for col, val in row_data_filtered.items():
-                                    if existing_row[col] is None:
-                                        update_data[col] = val
-                                if update_data:
-                                    stmt = update(target_table).where(pk_condition).values(**update_data)
-                                    tgt_conn.execute(stmt)
-                            else:
-                                stmt = insert(target_table).values(**row_data_filtered)
-                                tgt_conn.execute(stmt)
+                            update_data = {
+                                k: v
+                                for k, v in row_data_filtered.items()
+                                if existing[k] is None
+                            }
+                            if update_data:
+                                tgt_conn.execute(
+                                    update(target_table)
+                                    .where(pk_condition)
+                                    .values(**update_data)
+                                )
                     else:
-                        insert_data = {k: v for k, v in row_data_filtered.items() if k in target_columns}
-                        if insert_data:
-                            tgt_conn.execute(insert(target_table).values(**insert_data))
+                        tgt_conn.execute(
+                            insert(target_table)
+                            .values(**row_data_filtered)
+                        )
 
     def get_conflicts(self) -> Dict[str, List[Dict]]:
         conflicts: Dict[str, List[Dict]] = {}
