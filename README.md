@@ -86,6 +86,16 @@ Source DB: postgresql://postgres:postgres@postgres_source:5432/source_db
 Target DB: postgresql://postgres:postgres@postgres_target:5432/target_db
 ```
 
+### 3. Документацию можно просмотреть по эндпоинтам:
+
+```
+http://localhost:8000/docs
+```
+
+```
+http://localhost:8000/redoc
+```
+
 ---
 
 ## 🔹 Запуск без тестовых БД
