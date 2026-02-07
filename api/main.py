@@ -120,7 +120,7 @@ async def run_sync(request: Request, source_url: str = Form(...), target_url: st
     syncer = pending_syncers.get(target_url)
     if not syncer:
         return templates.TemplateResponse(
-            "partials/alert.html",
+            "alert.html",
             {
                 "request": request,
                 "type": "danger",
@@ -151,7 +151,7 @@ async def run_sync(request: Request, source_url: str = Form(...), target_url: st
         logger.exception("Sync failed for %s", target_url)
 
         return templates.TemplateResponse(
-            "partials/alert.html",
+            "alert.html",
             {
                 "request": request,
                 "type": "danger",
