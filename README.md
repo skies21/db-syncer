@@ -24,6 +24,11 @@
 db-syncer/
 ├── api/
 │   ├── main.py              # FastAPI backend
+│   ├── routers/ 
+│   │   ├── api_sync.py
+│   │   └── web.py
+│   ├── schemas/ 
+│   │   └── sync.py
 │   ├── templates/           # HTML-шаблоны
 │   │   ├── index.html
 │   │   ├── diff.html
@@ -36,6 +41,8 @@ db-syncer/
 │   ├── source/init.sql      # Скрипт генерации тестовой source DB
 │   └── target/init.sql      # Скрипт генерации тестовой target DB
 ├── tests/
+│   ├── conftest.py
+│   ├── test_api_sync.py
 │   └── test_db_syncer.py    # Автотесты
 ├── Dockerfile
 ├── docker-compose.yml
@@ -66,10 +73,58 @@ docker-compose --profile test_db down -v
 docker-compose --profile test_db up -d 
 ```
 
-Для автотестов используйте
+#### 1.2. Тестирование API /api/sync через curl
+##### 1.2.1. Через curl запрос с локальной машины
 ```bash
-pytest tests/test_db_syncer.py -v 
+curl -X POST http://127.0.0.1:8000/api/sync \
+     -H "Content-Type: application/json" \
+     -d '{
+           "source_url": "postgresql://postgres:postgres@localhost:5433/source_db",
+           "target_url": "postgresql://postgres:postgres@localhost:5434/target_db",
+           "pk_strategy": "merge"
+         }'
+
 ```
+
+Пример ответа:
+
+```
+{
+  "status": "ok",
+  "schema_synced": true,
+  "data_synced": true,
+  "pk_strategy": "merge"
+}
+```
+
+#### 1.2.2 Изнутри контейнера db-syncer (через имена контейнеров)
+
+```bash
+curl -X POST http://db-syncer:8000/api/sync \
+     -H "Content-Type: application/json" \
+     -d '{
+           "source_url": "postgresql://postgres:postgres@postgres_source:5432/source_db",
+           "target_url": "postgresql://postgres:postgres@postgres_target:5432/target_db",
+           "pk_strategy": "merge"
+         }'
+```
+
+Пример ответа:
+
+```
+{
+  "status": "ok",
+  "schema_synced": true,
+  "data_synced": true,
+  "pk_strategy": "merge"
+}
+```
+
+#### 1.3. Для автотестов используйте
+```bash
+pytest -v 
+```
+*Тесты используют те же фикстуры source_engine и target_engine, что и API, поэтому синхронизация и проверки происходят на тех же тестовых базах.*
 
 - Данный SQL генерируются в `db-init/source/init.sql` и `db-init/target/init.sql`
 
