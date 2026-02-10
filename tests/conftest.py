@@ -56,13 +56,13 @@ def prepare_target(target_engine):
         conn.execute(text("TRUNCATE TABLE users RESTART IDENTITY CASCADE"))
 
         conn.execute(text("""
-            INSERT INTO users (id, email, name, age, city) VALUES
-            (1, 'a@test.com', 'Alice PROD', 25, 'London PROD'),
-            (2, 'b@test.com', 'Bob PROD', NULL, NULL),
-            (3, 'c@test.com', 'Charlie', 30, 'Madrid')
+            INSERT INTO users (id, email, name, age, city, legacy_code) VALUES
+            (1, 'a@test.com', 'Alice PROD', '99', 'London PROD', 'L1'),
+            (2, 'b@test.com', 'Bob PROD', NULL, NULL, 'L2'),
+            (3, 'c@test.com', 'Charlie', '30', 'Madrid', 'L3'),
+            (4, 'd@test.com', 'David PROD', '18', 'Berlin', 'L4')
         """))
 
-        # 🔥 КРИТИЧНО: синхронизируем sequence с максимальным id
         conn.execute(text("""
             SELECT setval(
                 pg_get_serial_sequence('users', 'id'),
@@ -71,4 +71,3 @@ def prepare_target(target_engine):
         """))
 
     return True
-

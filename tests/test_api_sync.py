@@ -1,8 +1,6 @@
 import pytest
 from sqlalchemy import text
-
-SOURCE_URL = "postgresql://postgres:postgres@localhost:5433/source_db"
-TARGET_URL = "postgresql://postgres:postgres@localhost:5434/target_db"
+from tests.conftest import SOURCE_URL, TARGET_URL
 
 
 @pytest.mark.parametrize("strategy", ["skip", "overwrite", "merge"])
@@ -29,12 +27,12 @@ def test_api_sync(client, source_engine, target_engine, prepare_source, prepare_
         rows = conn.execute(
             text("SELECT id, name, city, age FROM users ORDER BY id")
         ).mappings().all()
-        result_dict = {row['id']: row for row in rows}
+        result_dict = {row['id']: {**row, 'age': int(row['age']) if row['age'] is not None else None} for row in rows}
 
     if strategy == "skip":
         assert result_dict[1]['name'] == "Alice PROD"
         assert result_dict[1]['city'] == "London PROD"
-        assert result_dict[1]['age'] == 25
+        assert result_dict[1]['age'] == 99
         assert result_dict[2]['name'] == "Bob PROD"
         assert result_dict[2]['city'] is None
         assert result_dict[2]['age'] is None
@@ -50,7 +48,7 @@ def test_api_sync(client, source_engine, target_engine, prepare_source, prepare_
     elif strategy == "merge":
         assert result_dict[1]['name'] == "Alice PROD"
         assert result_dict[1]['city'] == "London PROD"
-        assert result_dict[1]['age'] == 25
+        assert result_dict[1]['age'] == 99
         assert result_dict[2]['name'] == "Bob PROD"
         assert result_dict[2]['city'] == "Paris"
         assert result_dict[2]['age'] == 30
@@ -64,8 +62,8 @@ def test_api_sync_invalid_strategy(client, prepare_source, prepare_target):
     Тестируем API при передаче некорректной стратегии pk_strategy
     """
     payload = {
-        "source_url": "postgresql://postgres:postgres@localhost:5433/source_db",
-        "target_url": "postgresql://postgres:postgres@localhost:5434/target_db",
+        "source_url": SOURCE_URL,
+        "target_url": TARGET_URL,
         "pk_strategy": "invalid_strategy"
     }
 
