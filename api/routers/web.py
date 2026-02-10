@@ -1,8 +1,7 @@
 import logging
 from fastapi import Request, Form, Query, APIRouter
 from fastapi.responses import HTMLResponse
-from sqlalchemy import Table
-from starlette.status import HTTP_400_BAD_REQUEST
+from sqlalchemy import inspect
 from starlette.templating import Jinja2Templates
 from pathlib import Path
 
@@ -20,6 +19,7 @@ templates = Jinja2Templates(
 # Хранилища состояний
 pending_syncers = {}
 pending_diffs = {}
+pending_plans = {}
 pending_conflicts: dict[str, dict] = {}
 
 
@@ -33,15 +33,16 @@ async def get_diff(request: Request, source_url: str = Form(...), target_url: st
                    pk_strategy: str = Form("skip")):
     syncer = DBSyncer(source_url, target_url)
 
-    diff = syncer.diff_schema()
+    plan = syncer.analyze_schema()
 
     pending_syncers[target_url] = syncer
+    pending_plans[target_url] = plan
 
     return templates.TemplateResponse(
         "diff.html",
         {
             "request": request,
-            "diff": diff,
+            "plan": plan,
             "source_url": source_url,
             "target_url": target_url,
             "pk_strategy": pk_strategy,
@@ -109,7 +110,7 @@ async def confirm_batch(request: Request, tables: list[str] = Form([]),
         )
 
 
-@router.post("/sync", response_class=HTMLResponse)
+@router.post("/sync_data", response_class=HTMLResponse)
 async def run_sync(request: Request, source_url: str = Form(...), target_url: str = Form(...),
                    pk_strategy: str = Form("skip")):
     logger.info("Sync requested for target DB: %s", target_url)
@@ -127,66 +128,64 @@ async def run_sync(request: Request, source_url: str = Form(...), target_url: st
         )
 
     try:
-        syncer.sync_schema(interactive=False)
+        # Обновляем метаданные target перед синхронизацией
+        syncer.target_meta.reflect(bind=syncer.target_engine, extend_existing=True)
+        # Добавляем все недостающие колонки
+        syncer.sync_data_bulk(strategy=pk_strategy, create_missing_columns=True)
 
-        syncer.target_meta.clear()
-        syncer.target_meta.reflect(bind=syncer.target_engine)
-
-        syncer.sync_data(pk_strategy=pk_strategy)
-
-        return templates.TemplateResponse(
-            "sync_result.html",
-            {
-                "request": request,
-                "source_url": source_url,
-                "target_url": target_url,
-                "pk_strategy": pk_strategy,
-            },
-        )
-
-    except Exception as exc:
-        logger.exception("Sync failed for %s", target_url)
-
+    except Exception as e:
+        logger.exception("Data sync failed")
         return templates.TemplateResponse(
             "alert.html",
             {
                 "request": request,
                 "type": "danger",
-                "message": "Ошибка во время синхронизации. Проверьте логи.",
+                "message": f"Ошибка при синхронизации данных: {e}",
             },
             status_code=500,
         )
 
+    return templates.TemplateResponse(
+        "sync_result.html",
+        {
+            "request": request,
+            "source_url": source_url,
+            "target_url": target_url,
+            "pk_strategy": pk_strategy,
+        },
+    )
+
 
 @router.get("/conflicts", response_class=HTMLResponse)
-async def view_conflicts(request: Request, source_url: str = Query(...), target_url: str = Query(...),
-                         pk_strategy: str = Query("skip")):
-    logger.info("Conflicts view requested for target_url=%s", target_url)
+async def view_conflicts(request: Request, source_url: str = Query(...), target_url: str = Query(...), ):
+    logger.info("Conflict report requested for %s", target_url)
 
     syncer = pending_syncers.get(target_url)
     if not syncer:
-        logger.warning(
-            "Conflicts requested but no active sync session found for target_url=%s",
-            target_url,
+        return templates.TemplateResponse(
+            "alert.html",
+            {
+                "request": request,
+                "type": "danger",
+                "message": "Нет активной сессии синхронизации.",
+            },
+            status_code=404,
         )
-        return HTMLResponse("No active sync session", status_code=404)
 
     try:
-        conflicts = syncer.get_conflicts()
-        pending_conflicts[target_url] = conflicts
-
-        logger.info(
-            "Conflicts loaded for target_url=%s, total_conflicts=%d",
-            target_url,
-            len(conflicts),
-        )
+        conflicts = syncer.report_conflicts()
 
     except Exception:
-        logger.exception(
-            "Failed to load conflicts for target_url=%s",
-            target_url,
+        logger.exception("Failed to generate conflict report")
+        return templates.TemplateResponse(
+            "alert.html",
+            {
+                "request": request,
+                "type": "danger",
+                "message": "Ошибка при анализе конфликтов.",
+            },
+            status_code=500,
         )
-        return HTMLResponse("Failed to load conflicts", status_code=500)
 
     return templates.TemplateResponse(
         "conflicts.html",
@@ -195,91 +194,74 @@ async def view_conflicts(request: Request, source_url: str = Query(...), target_
             "conflicts": conflicts,
             "source_url": source_url,
             "target_url": target_url,
-            "pk_strategy": pk_strategy,
         },
     )
 
 
-@router.post("/resolve_conflicts", response_class=HTMLResponse)
-async def resolve_conflicts(request: Request, source_url: str = Form(...), target_url: str = Form(...)):
-    logger.info("Resolving conflicts for target DB: %s", target_url)
+@router.post("/confirm_schema", response_class=HTMLResponse)
+async def confirm_schema(request: Request, source_url: str = Form(...), target_url: str = Form(...), ):
+    logger.info("[confirm_schema] start target=%s", target_url)
 
     syncer = pending_syncers.get(target_url)
-    conflicts = pending_conflicts.get(target_url)
+    plan = pending_plans.get(target_url)
 
-    if not syncer:
-        logger.warning("No active syncer found for target DB: %s", target_url)
-        return HTMLResponse(
-            "<div class='alert alert-danger'>Sync session expired. Please restart.</div>",
-            status_code=HTTP_400_BAD_REQUEST,
+    if not syncer or not plan:
+        logger.warning("[confirm_schema] no active plan for %s", target_url)
+        return templates.TemplateResponse(
+            "alert.html",
+            {
+                "request": request,
+                "type": "danger",
+                "message": "Нет активного плана миграции.",
+            },
+            status_code=404,
         )
 
-    if not conflicts:
-        logger.info("No conflicts found for target DB: %s", target_url)
-        diff = syncer.diff_schema()
+    try:
+        logger.info(
+            "[confirm_schema] applying schema changes: tables=%s, columns=%s",
+            plan.create_tables,
+            plan.add_columns,
+        )
+
+        syncer.apply_safe_schema_changes(plan)
+        logger.info("[confirm_schema] schema changes applied")
+
+        logger.info("[confirm_schema] refreshing metadata")
+        syncer.target_meta.clear()
+        syncer.target_inspector = inspect(syncer.target_engine)
+        syncer.target_meta.reflect(bind=syncer.target_engine)
+        logger.info("[confirm_schema] metadata refreshed")
+
+        logger.info("[confirm_schema] re-analyzing schema")
+        new_plan = syncer.analyze_schema()
+        pending_plans[target_url] = new_plan
+        logger.info("[confirm_schema] re-analysis complete")
+
         return templates.TemplateResponse(
             "diff.html",
             {
                 "request": request,
-                "diff": diff,
+                "plan": new_plan,
                 "source_url": source_url,
                 "target_url": target_url,
-                "message": "No data conflicts found",
+                "message": "Безопасные изменения схемы применены",
             },
         )
 
-    logger.info(
-        "Found %d tables with conflicts for target DB: %s",
-        len(conflicts),
-        target_url,
-    )
-
-    form = await request.form()
-    global_strategy = form.get("pk_strategy", "skip")
-
-    with syncer.target_engine.begin() as conn:
-        for table, records in conflicts.items():
-            target_table = Table(
-                table,
-                syncer.target_meta,
-                autoload_with=syncer.target_engine,
-            )
-            target_columns = set(target_table.c.keys())
-            pk_col = list(syncer.source_meta.tables[table].primary_key.columns)[0].name
-
-            for rec in records:
-                pk_value = rec.get("pk")
-                source_data = rec.get("source_data")
-                target_data = rec.get("target_data")
-
-                if not source_data:
-                    continue
-
-                source_data_filtered = {k: v for k, v in source_data.items() if k in target_columns}
-
-                strategy = form.get(f"strategy_{table}_{pk_value}", global_strategy)
-
-                if strategy == "skip":
-                    continue
-                elif strategy == "overwrite":
-                    stmt = target_table.update().where(target_table.c[pk_col] == pk_value).values(
-                        **source_data_filtered)
-                    conn.execute(stmt)
-                elif strategy == "merge":
-                    update_data = {k: v for k, v in source_data_filtered.items() if not target_data.get(k)}
-                    if update_data:
-                        stmt = target_table.update().where(target_table.c[pk_col] == pk_value).values(**update_data)
-                        conn.execute(stmt)
-
-    diff = syncer.diff_schema()
-    logger.info("Conflict resolution finished for target DB: %s", target_url)
-
-    return templates.TemplateResponse(
-        "diff.html",
-        {
-            "request": request,
-            "diff": diff,
-            "source_url": source_url,
-            "target_url": target_url,
-        },
-    )
+    except Exception as exc:
+        logger.exception(
+            "[confirm_schema] FAILED target=%s plan=%s",
+            target_url,
+            plan,
+        )
+        print(exc)
+        return templates.TemplateResponse(
+            "alert.html",
+            {
+                "request": request,
+                "type": "danger",
+                "message": "Ошибка при применении схемы.",
+            },
+            status_code=500,
+        )

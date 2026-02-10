@@ -22,10 +22,7 @@ def sync_databases(payload: SyncRequest):
             target_url=str(payload.target_url),
         )
 
-        syncer.sync_schema(interactive=False)
-        syncer.target_meta.clear()
-        syncer.target_meta.reflect(bind=syncer.target_engine)
-        syncer.sync_data(pk_strategy=payload.pk_strategy)
+        syncer.sync_data_bulk(strategy=payload.pk_strategy, batch_size=1000, create_missing_columns=True)
 
         return {
             "status": "ok",
@@ -34,7 +31,7 @@ def sync_databases(payload: SyncRequest):
             "pk_strategy": payload.pk_strategy,
         }
 
-    except Exception as exc:
+    except Exception:
         logger.exception("API sync failed")
         raise HTTPException(
             status_code=500,

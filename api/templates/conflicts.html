@@ -3,73 +3,94 @@
 
     <h2 class="h5 mb-4">
       Конфликты данных
-      <span class="badge bg-warning text-dark ms-2">PK</span>
+      <span class="badge bg-warning text-dark ms-2">read-only</span>
     </h2>
 
     {% if conflicts %}
-
-    <form hx-post="/resolve_conflicts" hx-target="#diff-container" hx-include="this">
-      <input type="hidden" name="source_url" value="{{ source_url }}">
-      <input type="hidden" name="target_url" value="{{ target_url }}">
-      <input type="hidden" name="pk_strategy" value="{{ pk_strategy|default('skip') }}">
+      <div class="alert alert-warning">
+        Обнаружены строки с различиями между <strong>source</strong> и <strong>target</strong>.
+      </div>
 
       {% for table, records in conflicts.items() %}
-      <h6 class="mb-2">Таблица <code>{{ table }}</code></h6>
+        <div class="mb-4">
 
-      <div class="table-responsive mb-4">
-        <table class="table table-sm table-bordered align-middle">
-          <thead class="table-light">
-            <tr>
-              <th>PK</th>
-              <th>Источник</th>
-              <th>Цель</th>
-              <th>Стратегия</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for rec in records %}
-            <tr>
-              <td><code>{{ rec.pk }}</code></td>
-              <td class="small text-muted">{{ rec.source_data }}</td>
-              <td class="small text-muted">{{ rec.target_data }}</td>
-              <td>
-                <select
-                  name="strategy_{{ table }}_{{ rec.pk }}"
-                  class="form-select form-select-sm pk-strategy"
-                >
-                  <option value="skip" {% if pk_strategy == "skip" %}selected{% endif %}>Пропустить</option>
-                  <option value="overwrite" {% if pk_strategy == "overwrite" %}selected{% endif %}>Перезаписать</option>
-                  <option value="merge" {% if pk_strategy == "merge" %}selected{% endif %}>Объединить</option>
-                </select>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
+          <h6 class="mb-2">
+            Таблица <code>{{ table }}</code>
+            <span class="badge bg-danger ms-2">{{ records|length }}</span>
+          </h6>
+
+          <div class="table-responsive">
+            <table class="table table-sm table-bordered align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>PK</th>
+                  <th>Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for rec in records %}
+                <tr>
+                  <td><code>{{ rec.pk }}</code></td>
+                  <td class="text-danger small">
+                    Значения отличаются
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
       {% endfor %}
 
-      <button type="submit" class="btn btn-warning">
-        Применить выбранные стратегии
-      </button>
-    </form>
+      <hr>
 
+      <form hx-post="/sync_data" hx-target="#diff-container">
+        <input type="hidden" name="source_url" value="{{ source_url }}">
+        <input type="hidden" name="target_url" value="{{ target_url }}">
+
+        <div class="mb-3">
+          <label class="form-label">
+            Стратегия разрешения конфликтов
+          </label>
+          <select name="pk_strategy" class="form-select">
+            <option value="skip">Пропустить (ничего не менять)</option>
+            <option value="merge">Объединить (заполнить NULL)</option>
+            <option value="overwrite">Перезаписать (source → target)</option>
+          </select>
+          <div class="form-text">
+            Стратегия применяется <strong>ко всем конфликтным строкам</strong>.
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-warning">
+          Применить стратегию и синхронизировать данные
+        </button>
+      </form>
     {% else %}
+      <div class="alert alert-success mb-3">
+        <strong>Конфликтов не обнаружено.</strong><br>
+        Данные в source и target согласованы.
+      </div>
 
-    <div class="alert alert-success mb-0">
-      <strong>Конфликтов нет.</strong><br>
-      Можно безопасно применить изменения без ручного вмешательства.
-    </div>
-    <br>
+      <form hx-post="/sync_data" hx-target="#diff-container" class="d-inline">
+        <input type="hidden" name="source_url" value="{{ source_url }}">
+        <input type="hidden" name="target_url" value="{{ target_url }}">
+        <input type="hidden" name="pk_strategy" value="skip">
+        <button class="btn btn-success">
+          Синхронизировать отсутствующие данные
+        </button>
+      </form>
+    {% endif %}
+
+    <hr>
+
     <form hx-post="/diff" hx-target="#diff-container" class="d-inline">
       <input type="hidden" name="source_url" value="{{ source_url }}">
       <input type="hidden" name="target_url" value="{{ target_url }}">
-      <input type="hidden" name="pk_strategy" value="{{ pk_strategy }}">
-      <button type="submit" class="btn btn-outline-secondary">
-        ← Вернуться к различиям схемы
+      <button class="btn btn-outline-secondary">
+        ← Вернуться к плану схемы
       </button>
     </form>
-    {% endif %}
 
   </div>
 </div>

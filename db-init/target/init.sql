@@ -1,13 +1,20 @@
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE users (
     id SERIAL PRIMARY KEY,
-    email TEXT NOT NULL,
+    email VARCHAR(255) NOT NULL,
     name TEXT,
-    age INT,
-    city TEXT
+    age TEXT,
+    city TEXT,
+    legacy_code TEXT
 );
 
-INSERT INTO users (id, email, name, age, city)
+CREATE TABLE audit_log (
+    id SERIAL PRIMARY KEY,
+    message TEXT NOT NULL
+);
+
+INSERT INTO users (id, email, name, age, city, legacy_code)
 VALUES
-(1, 'a@test.com', 'Alice PROD', 25, 'London PROD'),
-(2, 'b@test.com', 'Bob PROD', NULL, NULL),
-(3, 'c@test.com', 'Charlie', 30, 'Madrid');
+(1, 'a@test.com', 'Alice PROD', '99', 'London PROD', 'L1'),
+(2, 'b@test.com', 'Bob PROD', NULL, NULL, 'L2'),
+(3, 'c@test.com', 'Charlie', '30', 'Madrid', 'L3'),
+(4, 'd@test.com', 'David PROD', '18', 'Berlin PROD', 'L4');

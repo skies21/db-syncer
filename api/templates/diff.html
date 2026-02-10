@@ -1,16 +1,16 @@
 <div class="card shadow-sm">
     <div class="card-body">
 
-        <h2 class="h5 mb-4">Различия схемы базы данных</h2>
+        <h2 class="h5 mb-4">План синхронизации схемы БД</h2>
 
-        {% if diff.tables_to_add %}
+        {% if plan.create_tables %}
         <div class="mb-4">
             <h6>
-                Таблицы для добавления
-                <span class="badge bg-success ms-2">новые</span>
+                Таблицы для создания
+                <span class="badge bg-success ms-2">safe</span>
             </h6>
             <ul class="list-group list-group-flush">
-                {% for table in diff.tables_to_add %}
+                {% for table in plan.create_tables %}
                 <li class="list-group-item">
                     <code>{{ table }}</code>
                 </li>
@@ -19,53 +19,22 @@
         </div>
         {% endif %}
 
-        {% if diff.tables_to_drop %}
-        <div class="mb-4">
-            <h6>
-                Таблицы для удаления
-                <span class="badge bg-danger ms-2">удаление</span>
-            </h6>
-
-            <form hx-post="/confirm_batch" hx-target="#diff-container">
-                <input type="hidden" name="source_url" value="{{ source_url }}">
-                <input type="hidden" name="target_url" value="{{ target_url }}">
-                <input type="hidden" name="pk_strategy" value="{{ pk_strategy }}">
-
-                {% for table in diff.tables_to_drop %}
-                <div class="form-check">
-                    <input
-                        class="form-check-input"
-                        type="checkbox"
-                        name="tables"
-                        value="{{ table }}"
-                        id="table-{{ table }}"
-                    >
-                    <label class="form-check-label" for="table-{{ table }}">
-                        <code>{{ table }}</code>
-                    </label>
-                </div>
-                {% endfor %}
-
-                <button class="btn btn-outline-danger btn-sm mt-3">
-                    Подтвердить удаление таблиц
-                </button>
-            </form>
-        </div>
-        {% endif %}
-
-        {% if diff.columns_to_add %}
+        {% if plan.add_columns %}
         <div class="mb-4">
             <h6>
                 Колонки для добавления
-                <span class="badge bg-success ms-2">новые</span>
+                <span class="badge bg-success ms-2">safe</span>
             </h6>
 
-            {% for table, cols in diff.columns_to_add.items() %}
+            {% for table, cols in plan.add_columns.items() %}
             <div class="mb-2">
                 <strong><code>{{ table }}</code></strong>
                 <ul class="mb-1">
-                    {% for col in cols.keys() %}
-                    <li><code>{{ col }}</code></li>
+                    {% for col, col_type in cols.items() %}
+                    <li>
+                        <code>{{ col }}</code>
+                        <span class="text-muted">({{ col_type }})</span>
+                    </li>
                     {% endfor %}
                 </ul>
             </div>
@@ -73,66 +42,62 @@
         </div>
         {% endif %}
 
-        {% if diff.columns_to_drop %}
+        {% if plan.warnings %}
         <div class="mb-4">
             <h6>
-                Колонки для удаления
-                <span class="badge bg-danger ms-2">удаление</span>
+                Потенциально опасные изменения помечаются как
+                <span class="badge bg-danger me-2">MANUAL</span>
             </h6>
 
-            <form hx-post="/confirm_batch" hx-target="#diff-container">
-                <input type="hidden" name="source_url" value="{{ source_url }}">
-                <input type="hidden" name="target_url" value="{{ target_url }}">
-                <input type="hidden" name="pk_strategy" value="{{ pk_strategy }}">
-
-                {% for table, cols in diff.columns_to_drop.items() %}
-                <div class="mb-2">
-                    <strong><code>{{ table }}</code></strong>
-
-                    {% for col in cols %}
-                    <div class="form-check ms-3">
-                        <input
-                            class="form-check-input"
-                            type="checkbox"
-                            name="columns"
-                            value="{{ table }}.{{ col }}"
-                            id="{{ table }}-{{ col }}"
-                        >
-                        <label class="form-check-label" for="{{ table }}-{{ col }}">
-                            <code>{{ col }}</code>
-                        </label>
-                    </div>
-                    {% endfor %}
-                </div>
+            <ul class="list-group list-group-flush">
+                {% for warning in plan.warnings %}
+                <li class="list-group-item">
+                    {% if warning.level == "MANUAL" %}
+                        <span class="badge bg-danger me-2">MANUAL</span>
+                    {% else %}
+                        <span class="badge bg-warning text-dark me-2">WARNING</span>
+                    {% endif %}
+                    {{ warning.message }}
+                </li>
                 {% endfor %}
+            </ul>
 
-                <button class="btn btn-outline-danger btn-sm mt-3">
-                    Подтвердить удаление колонок
-                </button>
-            </form>
+            <div class="alert alert-warning mt-3 mb-0">
+                Эти изменения <strong>не применяются автоматически</strong> и
+                требуют отдельной миграции после ручного ревью.
+            </div>
         </div>
         {% endif %}
 
-        <div class="d-flex gap-2 mt-4">
-            <form hx-get="/conflicts" hx-target="#diff-container" hx-include="this">
+        <div class="d-flex flex-wrap gap-2 mt-4">
+
+            {# APPLY SAFE SCHEMA #}
+            {% if plan.create_tables or plan.add_columns %}
+            <form hx-post="/confirm_schema" hx-target="#diff-container">
                 <input type="hidden" name="source_url" value="{{ source_url }}">
                 <input type="hidden" name="target_url" value="{{ target_url }}">
-                <input type="hidden" name="pk_strategy" value="{{ pk_strategy }}">
+                <button class="btn btn-success">
+                    Применить безопасные изменения схемы
+                </button>
+            </form>
+            {% endif %}
+
+            <form hx-get="/conflicts" hx-target="#diff-container">
+                <input type="hidden" name="source_url" value="{{ source_url }}">
+                <input type="hidden" name="target_url" value="{{ target_url }}">
                 <button type="submit" class="btn btn-outline-secondary">
                     Просмотреть конфликты данных
                 </button>
             </form>
 
-            <form hx-post="/sync" hx-target="#diff-container">
+            <form hx-post="/sync_data" hx-target="#diff-container">
                 <input type="hidden" name="source_url" value="{{ source_url }}">
                 <input type="hidden" name="target_url" value="{{ target_url }}">
                 <input type="hidden" name="pk_strategy" value="{{ pk_strategy }}">
-
                 <button class="btn btn-primary">
-                    Запустить синхронизацию
+                    Синхронизировать данные
                 </button>
             </form>
         </div>
-
     </div>
 </div>
